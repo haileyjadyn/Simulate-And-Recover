@@ -1,5 +1,3 @@
-# assisted with ChatGPT
-
 import numpy as np
 import sys
 from ez_diffusion import simulate_and_recover
@@ -13,7 +11,8 @@ if __name__ == "__main__":
         biases, squared_errors = simulate_and_recover(N, iterations)
         
         with open(f"results_N{N}.txt", "w") as f:
-            f.write(f"Biases: {biases}\n")
-            f.write(f"Squared Errors: {squared_errors}\n")
-    
+            f.write(f"N={N}\n")
+            f.write(f"Biases (v, a, t): {biases}\n")
+            f.write(f"Squared Errors (v, a, t): {squared_errors}\n")
+
     print("Simulation complete. Results saved.")
