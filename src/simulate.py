@@ -1,177 +1,117 @@
-import numpy as np
-from ez_diffusion import EZDiffusion
+#assited with AI
 
-class SimulationRunner:
-    """
-    Class to run the simulate-and-recover exercise for the EZ Diffusion model.
-    """
+import numpy as np
+import pandas as pd
+import time
+from src.ez_diffusion import EZDiffusion
+
+def run_simulation(n_iterations=1000, sample_sizes=[10, 40, 4000]):
+    """Run the simulate-and-recover process for EZ diffusion model."""
+    print(f"Running simulate-and-recover process with {n_iterations} iterations for each sample size")
     
-    def __init__(self, n_iterations=1000, sample_sizes=None):
-        """
-        Initialize the simulation runner.
-        
-        Args:
-            n_iterations (int): Number of simulation iterations to run per sample size.
-            sample_sizes (list): List of sample sizes to test.
-        """
-        self.n_iterations = n_iterations
-        self.sample_sizes = sample_sizes or [10, 40, 4000]
-        self.ez_diffusion = EZDiffusion()
-        
-    def generate_true_parameters(self):
-        """
-        Randomly select 'true' model parameters within realistic ranges.
-        
-        Returns:
-            tuple: True parameters (nu, alpha, tau)
-        """
-        # Parameter ranges as specified in the assignment
-        alpha = np.random.uniform(0.5, 2.0)  # Boundary separation
-        nu = np.random.uniform(0.5, 2.0)     # Drift rate
-        tau = np.random.uniform(0.1, 0.5)    # Non-decision time
-        
-        return nu, alpha, tau
+    # Initialize EZ diffusion model
+    ez = EZDiffusion()
     
-    def simulate_and_recover(self, N):
-        """
-        Run a single simulate-and-recover iteration.
-        
-        Args:
-            N (int): Sample size to use for this iteration.
-            
-        Returns:
-            dict: Results including true parameters, estimated parameters, bias, and squared error.
-        """
-        # Step 1: Select 'true' parameters
-        nu, alpha, tau = self.generate_true_parameters()
-        
-        # Step 2: Use forward equations to generate 'predicted' summary statistics
-        R_pred, M_pred, V_pred = self.ez_diffusion.forward(nu, alpha, tau)
-        
-        # Step 3: Simulate 'observed' summary statistics
-        R_obs, M_obs, V_obs = self.ez_diffusion.generate_observed_statistics(R_pred, M_pred, V_pred, N)
-        
-        # Step 4: Compute 'estimated' parameters using inverse equations
-        try:
-            nu_est, alpha_est, tau_est = self.ez_diffusion.inverse(R_obs, M_obs, V_obs)
-            
-            # Step 5: Compute bias and squared error
-            bias_nu = nu - nu_est
-            bias_alpha = alpha - alpha_est
-            bias_tau = tau - tau_est
-            
-            se_nu = bias_nu ** 2
-            se_alpha = bias_alpha ** 2
-            se_tau = bias_tau ** 2
-            
-            return {
-                'true_nu': nu,
-                'true_alpha': alpha,
-                'true_tau': tau,
-                'est_nu': nu_est,
-                'est_alpha': alpha_est,
-                'est_tau': tau_est,
-                'bias_nu': bias_nu,
-                'bias_alpha': bias_alpha,
-                'bias_tau': bias_tau,
-                'se_nu': se_nu,
-                'se_alpha': se_alpha,
-                'se_tau': se_tau,
-                'success': True
-            }
-            
-        except (ValueError, RuntimeWarning, FloatingPointError) as e:
-            # Handle potential numerical issues
-            return {
-                'true_nu': nu,
-                'true_alpha': alpha,
-                'true_tau': tau,
-                'error': str(e),
-                'success': False
-            }
+    # Initialize result storage
+    results = []
     
-    def run_simulations(self):
-        """
-        Run multiple simulate-and-recover simulations.
+    # Start timer
+    start_time = time.time()
+    
+    # Run simulation for each sample size
+    for n in sample_sizes:
+        print(f"Processing sample size N = {n}")
         
-        Returns:
-            dict: Aggregated results for each sample size.
-        """
-        results = {}
-        
-        for N in self.sample_sizes:
-            print(f"Running simulations for N = {N}")
-            N_results = []
+        for i in range(n_iterations):
+            # Progress indicator every 100 iterations
+            if (i + 1) % 100 == 0:
+                elapsed = time.time() - start_time
+                print(f"  Iteration {i + 1}/{n_iterations} (Elapsed time: {elapsed:.2f}s)")
             
-            successful_iterations = 0
-            for i in range(self.n_iterations):
-                if i % 100 == 0 and i > 0:
-                    print(f"  Completed {i} iterations...")
+            # Randomly select parameters
+            true_drift = np.random.uniform(0.5, 2.0)
+            true_boundary = np.random.uniform(0.5, 2.0)
+            true_nondecision = np.random.uniform(0.1, 0.5)
+            
+            # Generate observed summary statistics
+            r_obs, m_obs, v_obs = ez.generate_observed_statistics(
+                true_drift, true_boundary, true_nondecision, n
+            )
+            
+            # Recover parameters
+            try:
+                est_params = ez.recover_parameters(r_obs, m_obs, v_obs)
                 
-                iteration_result = self.simulate_and_recover(N)
-                N_results.append(iteration_result)
+                # Calculate bias and squared error
+                drift_bias = true_drift - est_params['drift_rate']
+                boundary_bias = true_boundary - est_params['boundary']
+                nondecision_bias = true_nondecision - est_params['nondecision']
                 
-                if iteration_result['success']:
-                    successful_iterations += 1
-            
-            print(f"  Completed {self.n_iterations} iterations. Success rate: {successful_iterations/self.n_iterations:.2%}")
-            results[N] = N_results
-            
-        return results
+                drift_se = drift_bias ** 2
+                boundary_se = boundary_bias ** 2
+                nondecision_se = nondecision_bias ** 2
+                
+                # Store results
+                results.append({
+                    'sample_size': n,
+                    'iteration': i + 1,
+                    'true_drift': true_drift,
+                    'true_boundary': true_boundary,
+                    'true_nondecision': true_nondecision,
+                    'est_drift': est_params['drift_rate'],
+                    'est_boundary': est_params['boundary'],
+                    'est_nondecision': est_params['nondecision'],
+                    'drift_bias': drift_bias,
+                    'boundary_bias': boundary_bias,
+                    'nondecision_bias': nondecision_bias,
+                    'drift_se': drift_se,
+                    'boundary_se': boundary_se,
+                    'nondecision_se': nondecision_se
+                })
+            except Exception as e:
+                print(f"Error in iteration {i + 1} with N = {n}: {e}")
+                # Store error case
+                results.append({
+                    'sample_size': n,
+                    'iteration': i + 1,
+                    'true_drift': true_drift,
+                    'true_boundary': true_boundary,
+                    'true_nondecision': true_nondecision,
+                    'est_drift': np.nan,
+                    'est_boundary': np.nan,
+                    'est_nondecision': np.nan,
+                    'drift_bias': np.nan,
+                    'boundary_bias': np.nan,
+                    'nondecision_bias': np.nan,
+                    'drift_se': np.nan,
+                    'boundary_se': np.nan,
+                    'nondecision_se': np.nan
+                })
     
-    def analyze_results(self, results):
-        """
-        Analyze simulation results and print summary statistics.
-        
-        Args:
-            results (dict): Simulation results for each sample size.
-            
-        Returns:
-            dict: Summary statistics for each sample size.
-        """
-        summary = {}
-        
-        for N, N_results in results.items():
-            # Filter out unsuccessful iterations
-            successful_results = [r for r in N_results if r['success']]
-            n_successful = len(successful_results)
-            
-            if n_successful == 0:
-                print(f"No successful iterations for N = {N}")
-                continue
-            
-            # Calculate mean and standard error of bias and squared error
-            bias_nu = np.mean([r['bias_nu'] for r in successful_results])
-            bias_alpha = np.mean([r['bias_alpha'] for r in successful_results])
-            bias_tau = np.mean([r['bias_tau'] for r in successful_results])
-            
-            se_nu = np.mean([r['se_nu'] for r in successful_results])
-            se_alpha = np.mean([r['se_alpha'] for r in successful_results])
-            se_tau = np.mean([r['se_tau'] for r in successful_results])
-            
-            std_bias_nu = np.std([r['bias_nu'] for r in successful_results]) / np.sqrt(n_successful)
-            std_bias_alpha = np.std([r['bias_alpha'] for r in successful_results]) / np.sqrt(n_successful)
-            std_bias_tau = np.std([r['bias_tau'] for r in successful_results]) / np.sqrt(n_successful)
-            
-            print(f"\nResults for N = {N} (successful iterations: {n_successful}):")
-            print(f"  Mean bias (nu):    {bias_nu:.6f} ± {std_bias_nu:.6f}")
-            print(f"  Mean bias (alpha): {bias_alpha:.6f} ± {std_bias_alpha:.6f}")
-            print(f"  Mean bias (tau):   {bias_tau:.6f} ± {std_bias_tau:.6f}")
-            print(f"  Mean squared error (nu):    {se_nu:.6f}")
-            print(f"  Mean squared error (alpha): {se_alpha:.6f}")
-            print(f"  Mean squared error (tau):   {se_tau:.6f}")
-            
-            summary[N] = {
-                'n_successful': n_successful,
-                'bias_nu': bias_nu,
-                'bias_alpha': bias_alpha,
-                'bias_tau': bias_tau,
-                'se_nu': se_nu,
-                'se_alpha': se_alpha,
-                'se_tau': se_tau,
-                'std_bias_nu': std_bias_nu,
-                'std_bias_alpha': std_bias_alpha,
-                'std_bias_tau': std_bias_tau
-            }
-        
-        return summary
+    # Convert results to DataFrame
+    results_df = pd.DataFrame(results)
+    
+    # Calculate summary statistics
+    summary = results_df.groupby('sample_size').agg({
+        'drift_bias': ['mean', 'std'],
+        'boundary_bias': ['mean', 'std'],
+        'nondecision_bias': ['mean', 'std'],
+        'drift_se': 'mean',
+        'boundary_se': 'mean',
+        'nondecision_se': 'mean'
+    })
+    
+    print("\nSummary of Results:")
+    print(summary)
+    
+    # Save results to CSV
+    results_df.to_csv('results.csv', index=False)
+    summary.to_csv('summary.csv')
+    
+    print(f"\nSimulation completed in {time.time() - start_time:.2f} seconds")
+    print("Results saved to 'results.csv' and 'summary.csv'")
+    
+    return results_df
+
+if __name__ == "__main__":
+    run_simulation()

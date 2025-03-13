@@ -1,11 +1,14 @@
-#assisted with ChatGPT
-
 #!/bin/bash
+#assited with AI
 
-# Navigate to the test directory
-cd "$(dirname "$0")"
+# test.sh - Run the test suite for the EZ Diffusion model
+# This script runs all the unit tests for the EZ Diffusion model implementation
 
-echo "Running unit tests for EZ diffusion model..."
-python3 -m unittest test_ez_diffusion.py
+echo "Running EZ Diffusion Model Test Suite"
+echo "===================================="
 
-echo "All tests completed."
+# Run the unittest module against our test files
+python -m unittest discover -s test
+
+echo ""
+echo "Test suite complete."

@@ -1,121 +1,151 @@
+#assited with AI
+
 import unittest
 import numpy as np
-import sys
-import os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src.ez_diffusion import EZDiffusion
 
 class TestEZDiffusion(unittest.TestCase):
-    """Test cases for the EZDiffusion class."""
     
     def setUp(self):
-        """Set up test fixtures."""
-        self.diffusion = EZDiffusion(T_er=0.3, a=0.1, z=0.5)
-        self.nu = 1.2  # Drift rate for testing
+        """Set up test parameters"""
+        self.ez = EZDiffusion()
+        # Define a set of known parameters for testing
+        self.test_params = {
+            'drift_rate': 1.0,
+            'boundary': 1.0,
+            'nondecision': 0.3
+        }
         
-    def test_initialization(self):
-        """Test initialization with default and custom parameters."""
-        # Test default parameters
-        diffusion_default = EZDiffusion()
-        self.assertEqual(diffusion_default.T_er, 0.3)
-        self.assertEqual(diffusion_default.a, 0.1)
-        self.assertEqual(diffusion_default.z, 0.5)
-        
-        # Test custom parameters
-        diffusion_custom = EZDiffusion(T_er=0.5, a=0.2, z=0.7)
-        self.assertEqual(diffusion_custom.T_er, 0.5)
-        self.assertEqual(diffusion_custom.a, 0.2)
-        self.assertEqual(diffusion_custom.z, 0.7)
+    def test_forward_accuracy(self):
+        """Test that the forward equation for accuracy gives expected results"""
+        # With drift_rate=1.0 and boundary=1.0, R_pred should be 1/(exp(-1) + 1)
+        expected_r = 1 / (np.exp(-1 * self.test_params['drift_rate'] * self.test_params['boundary']) + 1)
+        actual_r = self.ez.forward_accuracy(
+            self.test_params['drift_rate'], 
+            self.test_params['boundary']
+        )
+        self.assertAlmostEqual(expected_r, actual_r, places=6)
     
-    def test_simulation(self):
-        """Test that simulation returns reaction times and choices of the right size."""
-        rt, choice = self.diffusion.simulate(self.nu, n_trials=100, seed=42)
+    def test_forward_mean_rt(self):
+        """Test that the forward equation for mean RT gives expected results"""
+        drift = self.test_params['drift_rate']
+        boundary = self.test_params['boundary']
+        nondecision = self.test_params['nondecision']
         
-        # Check that arrays have the right shape
-        self.assertEqual(len(rt), 100)
-        self.assertEqual(len(choice), 100)
+        y = np.exp(-drift * boundary)
+        expected_mean = nondecision + (boundary / (2 * drift)) * ((1 - y) / (1 + y))
         
-        # Check that reaction times are positive
-        self.assertTrue(np.all(rt > 0))
+        actual_mean = self.ez.forward_mean_rt(drift, boundary, nondecision)
         
-        # Check that choices are either 0 or 1
-        self.assertTrue(np.all((choice == 0) | (choice == 1)))
+        self.assertAlmostEqual(expected_mean, actual_mean, places=6)
     
-    def test_forward_inverse_consistency(self):
-        """Test that applying forward equations followed by inverse equations
-        recovers the original drift rate parameter."""
-        # Apply forward equations
-        mrt, vrt, pc = self.diffusion.forward_equations(self.nu)
+    def test_forward_variance_rt(self):
+        """Test that the forward equation for RT variance gives expected results"""
+        drift = self.test_params['drift_rate']
+        boundary = self.test_params['boundary']
         
-        # Apply inverse equations
-        nu_est = self.diffusion.inverse_equations(mrt, vrt, pc)
+        y = np.exp(-drift * boundary)
+        expected_var = ((boundary / (2 * drift))**3) * ((1 - 2*drift*boundary*y - y**2) / ((1 + y)**2))
         
-        # Check that the estimated drift rate is close to the original
-        self.assertAlmostEqual(nu_est, self.nu, places=5)
+        actual_var = self.ez.forward_variance_rt(drift, boundary)
+        
+        self.assertAlmostEqual(expected_var, actual_var, places=6)
     
-    def test_parameter_recovery(self):
-        """Test that parameters can be recovered from simulated data."""
-        # Simulate data with a very large number of trials for better statistics
-        rt, choice = self.diffusion.simulate(self.nu, n_trials=20000, seed=42)
+    def test_inverse_drift_rate(self):
+        """Test inverse equation for drift rate"""
+        # Create summary statistics using forward equations
+        drift = self.test_params['drift_rate']
+        boundary = self.test_params['boundary']
         
-        # Compute statistics
-        mrt, vrt, pc = self.diffusion.compute_statistics(rt, choice)
+        accuracy = self.ez.forward_accuracy(drift, boundary)
+        variance = self.ez.forward_variance_rt(drift, boundary)
+        
+        # Recover drift rate
+        recovered_drift = self.ez.inverse_drift_rate(accuracy, variance)
+        
+        self.assertAlmostEqual(drift, recovered_drift, places=6)
+    
+    def test_inverse_boundary(self):
+        """Test inverse equation for boundary separation"""
+        # Create summary statistics using forward equations
+        drift = self.test_params['drift_rate']
+        boundary = self.test_params['boundary']
+        
+        accuracy = self.ez.forward_accuracy(drift, boundary)
+        variance = self.ez.forward_variance_rt(drift, boundary)
+        
+        # Recover drift rate first (needed for boundary calculation)
+        recovered_drift = self.ez.inverse_drift_rate(accuracy, variance)
+        # Recover boundary
+        recovered_boundary = self.ez.inverse_boundary(accuracy, recovered_drift)
+        
+        self.assertAlmostEqual(boundary, recovered_boundary, places=6)
+    
+    def test_inverse_nondecision(self):
+        """Test inverse equation for non-decision time"""
+        # Create summary statistics using forward equations
+        drift = self.test_params['drift_rate']
+        boundary = self.test_params['boundary']
+        nondecision = self.test_params['nondecision']
+        
+        accuracy = self.ez.forward_accuracy(drift, boundary)
+        mean_rt = self.ez.forward_mean_rt(drift, boundary, nondecision)
+        variance = self.ez.forward_variance_rt(drift, boundary)
         
         # Recover parameters
-        nu_est = self.diffusion.inverse_equations(mrt, vrt, pc)
+        recovered_drift = self.ez.inverse_drift_rate(accuracy, variance)
+        recovered_boundary = self.ez.inverse_boundary(accuracy, recovered_drift)
+        recovered_nondecision = self.ez.inverse_nondecision(mean_rt, recovered_drift, recovered_boundary)
         
-        # Check that the estimated drift rate is reasonably close to the original
-        # Allow much higher tolerance due to simulation stochasticity
-        rel_error = abs(nu_est - self.nu) / self.nu
-        self.assertLess(rel_error, 0.2)
+        self.assertAlmostEqual(nondecision, recovered_nondecision, places=6)
     
-    def test_parameter_recovery_bias_zero_without_noise(self):
-        """Test that the bias is close to zero when there is no noise,
-        i.e., when using theoretical statistics."""
-        # Use theoretical statistics from forward equations
-        mrt, vrt, pc = self.diffusion.forward_equations(self.nu)
+    def test_full_recovery_without_noise(self):
+        """Test a full parameter recovery when there's no sampling noise"""
+        # Define parameters
+        true_params = {
+            'drift_rate': 1.5,
+            'boundary': 0.8,
+            'nondecision': 0.25
+        }
+        
+        # Generate predicted summary statistics
+        r_pred = self.ez.forward_accuracy(true_params['drift_rate'], true_params['boundary'])
+        m_pred = self.ez.forward_mean_rt(true_params['drift_rate'], true_params['boundary'], true_params['nondecision'])
+        v_pred = self.ez.forward_variance_rt(true_params['drift_rate'], true_params['boundary'])
+        
+        # Set observed = predicted (no noise)
+        r_obs, m_obs, v_obs = r_pred, m_pred, v_pred
         
         # Recover parameters
-        nu_est = self.diffusion.inverse_equations(mrt, vrt, pc)
+        est_params = self.ez.recover_parameters(r_obs, m_obs, v_obs)
         
-        # Compute bias
-        bias_nu = nu_est - self.nu
-        
-        # Check that bias is small
-        self.assertAlmostEqual(bias_nu, 0, places=5)
+        # Check that all parameters are correctly recovered
+        self.assertAlmostEqual(true_params['drift_rate'], est_params['drift_rate'], places=6)
+        self.assertAlmostEqual(true_params['boundary'], est_params['boundary'], places=6)
+        self.assertAlmostEqual(true_params['nondecision'], est_params['nondecision'], places=6)
     
-    def test_error_handling(self):
-        """Test that appropriate errors are raised for invalid inputs."""
-        # Test invalid initialization parameters
-        with self.assertRaises(ValueError):
-            EZDiffusion(T_er=-0.1)  # Negative non-decision time
+    def test_sampling_distributions(self):
+        """Test that sampling distributions generate values with expected properties"""
+        # Parameters
+        n_samples = 10000
+        r_pred = 0.8  # Predicted accuracy rate
+        m_pred = 0.5  # Predicted mean RT
+        v_pred = 0.1  # Predicted variance of RT
+        n = 100       # Sample size
         
-        with self.assertRaises(ValueError):
-            EZDiffusion(a=0)  # Zero boundary separation
+        # Generate samples
+        r_samples = np.array([self.ez.sample_accuracy(r_pred, n) for _ in range(n_samples)])
+        m_samples = np.array([self.ez.sample_mean_rt(m_pred, v_pred, n) for _ in range(n_samples)])
+        v_samples = np.array([self.ez.sample_variance_rt(v_pred, n) for _ in range(n_samples)])
         
-        with self.assertRaises(ValueError):
-            EZDiffusion(z=0)  # Zero starting point
+        # Check that mean of samples is close to predicted value
+        self.assertAlmostEqual(r_pred, np.mean(r_samples), places=2)
+        self.assertAlmostEqual(m_pred, np.mean(m_samples), places=2)
+        self.assertAlmostEqual(v_pred, np.mean(v_samples), places=2)
         
-        with self.assertRaises(ValueError):
-            EZDiffusion(z=1)  # Starting point equal to boundary
-        
-        # Test invalid simulation parameters
-        with self.assertRaises(ValueError):
-            self.diffusion.simulate(self.nu, n_trials=0)  # Zero trials
-        
-        # Test invalid inverse equation parameters
-        with self.assertRaises(ValueError):
-            self.diffusion.inverse_equations(0.5, 0.1, 0)  # Zero proportion correct
-        
-        with self.assertRaises(ValueError):
-            self.diffusion.inverse_equations(0.5, 0.1, 1)  # Perfect accuracy
-        
-        with self.assertRaises(ValueError):
-            self.diffusion.inverse_equations(0.5, 0, 0.7)  # Zero variance
-        
-        # Test invalid forward equations parameter
-        with self.assertRaises(ValueError):
-            self.diffusion.forward_equations(0)  # Zero drift rate
+        # Check variances are in expected ranges
+        self.assertLess(np.var(r_samples), r_pred * (1 - r_pred) / n + 0.001)  # Binomial variance
+        self.assertLess(np.var(m_samples), v_pred / n + 0.001)  # Normal variance
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     unittest.main()
