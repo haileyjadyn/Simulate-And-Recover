@@ -2,84 +2,76 @@
 
 import unittest
 import numpy as np
-from simulate import Simulator, SimulationResult
+import pandas as pd
+from src.simulate import SimulationRunner
+from src.ez_diffusion import EZDiffusion
 
-class TestSimulator(unittest.TestCase):
+class TestSimulationRunner(unittest.TestCase):
     
     def setUp(self):
-        # Create a simulator instance for testing
-        self.simulator = Simulator()
+        """Set up test environment"""
+        self.ez = EZDiffusion()
+        self.small_runner = SimulationRunner(n_iterations=10, sample_sizes=[10])
     
-    def test_simulate_basic_functionality(self):
-        """Test that the simulate method returns expected results for a basic scenario."""
-        # Define test parameters
-        num_steps = 10
-        initial_state = np.array([0.5, 0.5])
-        
-        # Run simulation
-        result = self.simulator.simulate(initial_state, num_steps)
-        
-        # Verify result is a SimulationResult object
-        self.assertIsInstance(result, SimulationResult)
-        
-        # Check that state history has correct shape
-        self.assertEqual(result.state_history.shape, (num_steps + 1, 2))
-        
-        # Verify initial state is correctly recorded
-        np.testing.assert_array_equal(result.state_history[0], initial_state)
-        
-        # Verify time steps are recorded correctly
-        self.assertEqual(len(result.time_steps), num_steps + 1)
-        self.assertEqual(result.time_steps[0], 0)
-        self.assertEqual(result.time_steps[-1], num_steps)
+    def test_simulation_runner_initialization(self):
+        """Test that the SimulationRunner initializes correctly."""
+        runner = SimulationRunner(n_iterations=5, sample_sizes=[10, 20])
+        self.assertEqual(runner.n_iterations, 5)
+        self.assertEqual(runner.sample_sizes, [10, 20])
+        self.assertIsInstance(runner.ez, EZDiffusion)
     
-    def test_simulate_with_noise(self):
-        """Test simulation with noise parameter."""
-        # Define test parameters
-        initial_state = np.array([0.5, 0.5])
-        num_steps = 5
-        noise_level = 0.2
+    def test_run_simulations_basic(self):
+        """Test that run_simulations runs and returns a DataFrame."""
+        # Run a very small simulation to test functionality
+        results = self.small_runner.run_simulations()
         
-        # Run simulation without noise first
-        result_no_noise = self.simulator.simulate(initial_state, num_steps, noise_level=0.0)
+        # Check that results is a DataFrame
+        self.assertIsInstance(results, pd.DataFrame)
         
-        # Run simulation with noise
-        result_with_noise = self.simulator.simulate(initial_state, num_steps, noise_level=noise_level)
+        # Check that it has the expected number of rows
+        expected_rows = len(self.small_runner.sample_sizes) * self.small_runner.n_iterations
+        self.assertEqual(len(results), expected_rows)
         
-        # Verify result contains the expected number of steps
-        self.assertEqual(result_with_noise.state_history.shape, (num_steps + 1, 2))
-        
-        # Check that noise makes a difference
-        # Compare the results without and with noise - they should be different
-        # We can't predict exactly how, but we can check they're not identical
-        different_values = False
-        for i in range(1, num_steps + 1):  # Skip initial state which should be identical
-            if not np.array_equal(result_no_noise.state_history[i], result_with_noise.state_history[i]):
-                different_values = True
-                break
-        
-        self.assertTrue(different_values, "Noise should cause different simulation results")
+        # Check that it has the expected columns
+        expected_columns = ['sample_size', 'iteration', 'true_drift', 'true_boundary', 
+                           'true_nondecision', 'est_drift', 'est_boundary', 
+                           'est_nondecision', 'drift_bias', 'boundary_bias', 
+                           'nondecision_bias', 'drift_se', 'boundary_se', 'nondecision_se']
+        for col in expected_columns:
+            self.assertIn(col, results.columns)
     
-    def test_simulation_with_custom_dynamics(self):
-        """Test simulation with custom dynamics function."""
-        # Define a custom dynamics function that doubles the state
-        def custom_dynamics(state, dt):
-            return state * 2
+    def test_analyze_results(self):
+        """Test that analyze_results produces a summary."""
+        # Create a small test DataFrame
+        test_data = {
+            'sample_size': [10, 10, 20, 20],
+            'drift_bias': [0.1, -0.1, 0.05, -0.05],
+            'boundary_bias': [0.2, -0.2, 0.1, -0.1],
+            'nondecision_bias': [0.02, -0.02, 0.01, -0.01],
+            'drift_se': [0.01, 0.01, 0.0025, 0.0025],
+            'boundary_se': [0.04, 0.04, 0.01, 0.01],
+            'nondecision_se': [0.0004, 0.0004, 0.0001, 0.0001]
+        }
+        df = pd.DataFrame(test_data)
         
-        # Create simulator with custom dynamics
-        simulator = Simulator(dynamics_func=custom_dynamics)
+        # Get summary
+        summary = self.small_runner.analyze_results(df)
         
-        # Define test parameters
-        initial_state = np.array([1.0, 2.0])
-        num_steps = 3
-        dt = 0.1
+        # Check that summary is a DataFrame with MultiIndex
+        self.assertIsInstance(summary, pd.DataFrame)
+        self.assertIsInstance(summary.columns, pd.MultiIndex)
         
-        # Run simulation
-        result = simulator.simulate(initial_state, num_steps, dt=dt)
+        # Check that means are calculated correctly
+        self.assertAlmostEqual(summary.loc[10, ('drift_bias', 'mean')], 0.0, places=6)
+        self.assertAlmostEqual(summary.loc[10, ('boundary_bias', 'mean')], 0.0, places=6)
+        self.assertAlmostEqual(summary.loc[20, ('drift_bias', 'mean')], 0.0, places=6)
         
-        # Expected states: [1.0, 2.0] -> [2.0, 4.0] -> [4.0, 8.0] -> [8.0, 16.0]
-        expected_final_state = initial_state * (2 ** num_steps)
-        np.testing.assert_array_almost_equal(result.state_history[-1], expected_final_state)
+        # Check that standard deviations are calculated correctly
+        self.assertAlmostEqual(summary.loc[10, ('drift_bias', 'std')], 0.1414, places=4)
+        
+        # Check that means of squared errors are calculated correctly
+        self.assertAlmostEqual(summary.loc[10, ('drift_se', 'mean')], 0.01, places=6)
+        self.assertAlmostEqual(summary.loc[20, ('drift_se', 'mean')], 0.0025, places=6)
 
 if __name__ == '__main__':
     unittest.main()

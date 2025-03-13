@@ -5,6 +5,47 @@ import pandas as pd
 import time
 from src.ez_diffusion import EZDiffusion
 
+class SimulationResult:
+    """Class to store simulation results."""
+    def __init__(self, state_history, time_steps):
+        self.state_history = state_history
+        self.time_steps = time_steps
+
+class Simulator:
+    """Class for running general simulations."""
+    def __init__(self, dynamics_func=None):
+        self.dynamics_func = dynamics_func or self.default_dynamics
+    
+    def default_dynamics(self, state, dt):
+        """Default dynamics function that does a simple increment."""
+        return state + dt
+    
+    def simulate(self, initial_state, num_steps, dt=1.0, noise_level=0.0):
+        """Run a simulation for the specified number of steps."""
+        # Initialize state history and time steps
+        state_history = np.zeros((num_steps + 1, len(initial_state)))
+        time_steps = np.zeros(num_steps + 1)
+        
+        # Set initial state
+        state_history[0] = initial_state
+        current_state = initial_state.copy()
+        
+        # Run simulation
+        for i in range(1, num_steps + 1):
+            # Apply dynamics
+            current_state = self.dynamics_func(current_state, dt)
+            
+            # Add noise if specified
+            if noise_level > 0:
+                noise = np.random.normal(0, noise_level, size=len(current_state))
+                current_state = current_state + noise
+            
+            # Record state and time
+            state_history[i] = current_state
+            time_steps[i] = i * dt
+        
+        return SimulationResult(state_history, time_steps)
+
 class SimulationRunner:
     def __init__(self, n_iterations=1000, sample_sizes=[10, 40, 4000]):
         self.n_iterations = n_iterations

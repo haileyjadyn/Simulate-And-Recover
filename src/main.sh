@@ -1,8 +1,6 @@
 #!/bin/bash
-#assited with AI
-
+#assisted with AI
 # main.sh - Run the complete EZ Diffusion simulate-and-recover exercise
-# This script runs the 3000-iteration simulate-and-recovery exercise as required
 
 echo "Starting EZ Diffusion Model Simulate-and-Recover Exercise"
 echo "=========================================================="
@@ -27,11 +25,31 @@ results = runner.run_simulations()
 # Analyze and print the results
 summary = runner.analyze_results(results)
 
-# Save results to a file
+# Save results to files
 np.save('results/simulation_results.npy', results)
 np.save('results/summary_results.npy', summary)
 
-print('\nResults have been saved to the results directory.')
+# Generate text files for each sample size
+for n in [10, 40, 4000]:
+    subset = results[results['sample_size'] == n]
+    
+    # Calculate biases
+    drift_bias = subset['drift_bias'].mean()
+    boundary_bias = subset['boundary_bias'].mean()
+    nondecision_bias = subset['nondecision_bias'].mean()
+    
+    # Calculate squared errors
+    drift_se = subset['drift_se'].mean()
+    boundary_se = subset['boundary_se'].mean() 
+    nondecision_se = subset['nondecision_se'].mean()
+    
+    # Write to file
+    with open(f'results_N{n}.txt', 'w') as f:
+        f.write(f'N={n}\\n')
+        f.write(f'Biases (v, a, t): [{drift_bias:.8f} {boundary_bias:.8f} {nondecision_bias:.8f}]\\n')
+        f.write(f'Squared Errors (v, a, t): [{drift_se:.8f} {boundary_se:.8f} {nondecision_se:.8f}]\\n')
+
+print('\\nResults have been saved to the results directory and results_N*.txt files.')
 "
 
 echo ""
