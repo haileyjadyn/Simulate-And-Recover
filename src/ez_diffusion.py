@@ -1,3 +1,5 @@
+#assisted with AI
+
 import numpy as np
 
 class EZDiffusion:

@@ -34,6 +34,7 @@ $PYTHON_CMD -c "
 import numpy as np
 import os
 from src.simulate import SimulationRunner
+from src.ez_diffusion import EZDiffusion
 
 # Check Python version
 import sys

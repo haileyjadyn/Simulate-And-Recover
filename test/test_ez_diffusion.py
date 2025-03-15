@@ -1,4 +1,4 @@
-#assited with AI
+#assisted with AI
 
 import unittest
 import numpy as np
@@ -45,7 +45,7 @@ class TestEZDiffusion(unittest.TestCase):
         boundary = self.test_params['boundary']
         
         y = np.exp(-drift * boundary)
-        expected_var = ((boundary / (2 * drift))**3) * ((1 - 2*drift*boundary*y - y**2) / ((1 + y)**2))
+        expected_var = (boundary**2 / drift**2) * ((1 + y**2) / ((1 + y)**2)) - ((boundary / (2 * drift)) * ((1 - y) / (1 + y)))**2
         
         actual_var = self.ez.forward_variance_rt(drift, boundary)
         
